@@ -104,13 +104,17 @@
     }
 
     function initBoard(fen = "start") {
-      board = Chessboard("board", {
-        draggable: true,
-        position: fen,
-        onDrop: onDrop,
-        orientation: (myColor === "black" ? "black" : "white")
-      });
+  board = Chessboard("board", {
+    draggable: true,
+    position: fen,
+    onDrop: onDrop,
+    orientation: (myColor === "black" ? "black" : "white"),
+    pieceTheme: function(piece) {
+      return 'images/pieces/' + piece + '.png';
     }
+  });
+}
+
 
     async function joinRoom(code) {
       roomId = code;
