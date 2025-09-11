@@ -2,26 +2,43 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Firebase Chess</title>
+  <title>Firebase Chess Rooms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.css">
   <style>
-    body { display:flex; flex-direction:column; align-items:center; font-family:sans-serif; margin:20px; }
-    #board { width: 400px; margin:20px; }
-    #status { margin-top:10px; font-weight:bold; }
+    body { font-family: sans-serif; display:flex; flex-direction:column; align-items:center; margin:20px; }
+    #board { width: 400px; margin:20px; display:none; }
+    #status, #winner { margin:10px; font-weight:bold; }
+    #roomForm { margin:20px; }
+    #winner { font-size:20px; color:#b00; }
+    button { padding:6px 12px; }
   </style>
 </head>
 <body>
   <h2>Firebase Chess</h2>
-  <div id="board"></div>
-  <div id="status">Connecting...</div>
 
-  <!-- Firebase SDKs -->
+  <!-- Room join form -->
+  <div id="roomForm">
+    <input type="text" id="roomCode" placeholder="Enter room code">
+    <button id="joinBtn">Join Room</button>
+  </div>
+
+  <!-- Game UI -->
+  <div id="gameUI" style="display:none;">
+    <div id="board"></div>
+    <div id="status"></div>
+    <div id="winner" style="display:none;"></div>
+    <button id="continueBtn" style="display:none;">Continue</button>
+  </div>
+
+  <!-- Firebase + Chess -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+    import { getDatabase, ref, set, get, update, onValue, push } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+    import "https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js";
+    import "https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.js";
 
-    // Your Firebase config
+    // Firebase config
     const firebaseConfig = {
       apiKey: "AIzaSyDvU2DH8o3baDrRPmihP45R39OtSjhk2aA",
       authDomain: "chess-4b89c.firebaseapp.com",
@@ -36,36 +53,46 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // Chessboard + rules libs
-    import "https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js";
-    import "https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.js";
-
     const game = new Chess();
     let board = null;
-    const gameRef = ref(db, "chess/game1");
+    let myColor = null;
+    let roomRef = null;
+    let roomId = null;
+
+    const roomForm = document.getElementById("roomForm");
+    const roomCodeInput = document.getElementById("roomCode");
+    const joinBtn = document.getElementById("joinBtn");
+    const gameUI = document.getElementById("gameUI");
+    const statusEl = document.getElementById("status");
+    const winnerEl = document.getElementById("winner");
+    const continueBtn = document.getElementById("continueBtn");
+    const boardEl = document.getElementById("board");
 
     function updateStatus() {
-      let status = "";
-      const moveColor = game.turn() === "w" ? "White" : "Black";
-
       if (game.in_checkmate()) {
-        status = "Game over, " + moveColor + " is checkmated.";
-      } else if (game.in_draw()) {
-        status = "Game over, drawn position.";
-      } else {
-        status = moveColor + " to move";
-        if (game.in_check()) {
-          status += ", " + moveColor + " is in check";
-        }
+        const winner = (game.turn() === "w" ? "Black" : "White");
+        winnerEl.textContent = winner + " wins!";
+        winnerEl.style.display = "block";
+        continueBtn.style.display = "inline-block";
+        return;
       }
-      document.getElementById("status").textContent = status;
+      if (game.in_draw()) {
+        statusEl.textContent = "Game drawn.";
+        return;
+      }
+      const moveColor = game.turn() === "w" ? "White" : "Black";
+      statusEl.textContent = moveColor + " to move" + (game.in_check() ? " (in check)" : "");
     }
 
     function onDrop(source, target) {
+      if (!myColor) return "snapback";
+      if ((myColor[0] !== game.turn())) return "snapback"; // not my turn
+
       const move = game.move({ from: source, to: target, promotion: "q" });
-      if (move === null) return "snapback"; // invalid move
-      // Save new position to Firebase
-      set(gameRef, { fen: game.fen(), turn: game.turn() });
+      if (move === null) return "snapback"; // invalid
+
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+      updateStatus();
     }
 
     function initBoard(fen = "start") {
@@ -76,23 +103,64 @@
       });
     }
 
-    // Listen for game state changes
-    onValue(gameRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data && data.fen) {
-        game.load(data.fen);
-        board.position(data.fen);
-        updateStatus();
-      } else {
-        // fresh game
-        game.reset();
-        set(gameRef, { fen: game.fen(), turn: game.turn() });
-        board.start();
-        updateStatus();
-      }
-    });
+    async function joinRoom(code) {
+      roomId = code;
+      roomRef = ref(db, "rooms/" + code);
 
-    initBoard();
+      const snapshot = await get(roomRef);
+      if (!snapshot.exists()) {
+        // New room
+        await set(roomRef, {
+          players: {},
+          state: { fen: game.fen(), turn: game.turn() }
+        });
+      }
+
+      // Assign player color if less than 2
+      const playersRef = ref(db, `rooms/${code}/players`);
+      const playersSnap = await get(playersRef);
+      const players = playersSnap.val() || {};
+      if (Object.keys(players).length < 2) {
+        // assign random color not taken
+        const taken = Object.values(players);
+        let color = Math.random() < 0.5 ? "white" : "black";
+        if (taken.includes(color)) color = (color === "white" ? "black" : "white");
+        const id = push(playersRef).key;
+        await update(playersRef, { [id]: color });
+        myColor = color;
+      } else {
+        myColor = null; // spectator
+      }
+
+      // Listen for game state
+      onValue(ref(db, `rooms/${code}/state`), (snap) => {
+        const data = snap.val();
+        if (data && data.fen) {
+          game.load(data.fen);
+          board.position(data.fen);
+          updateStatus();
+        }
+      });
+
+      roomForm.style.display = "none";
+      gameUI.style.display = "block";
+      boardEl.style.display = "block";
+      initBoard();
+      updateStatus();
+    }
+
+    joinBtn.onclick = () => {
+      const code = roomCodeInput.value.trim();
+      if (code) joinRoom(code);
+    };
+
+    continueBtn.onclick = () => {
+      game.reset();
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+      winnerEl.style.display = "none";
+      continueBtn.style.display = "none";
+      updateStatus();
+    };
   </script>
 </body>
 </html>
