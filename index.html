@@ -9,8 +9,8 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
 
-  <!-- chess.js -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
+  <!-- ✅ Fixed: use UMD version of chess.js that exposes global Chess -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
   <style>
     body { font-family: sans-serif; display:flex; flex-direction:column; align-items:center; margin:20px; }
@@ -38,6 +38,7 @@
     <button id="continueBtn" style="display:none;">Continue</button>
   </div>
 
+  <!-- Firebase + Game Logic -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
     import { getDatabase, ref, set, get, update, onValue, push } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
@@ -127,7 +128,6 @@
       const playersSnap = await get(playersRef);
       const players = playersSnap.val() || {};
       if (Object.keys(players).length < 2) {
-        // assign random color not taken
         const taken = Object.values(players);
         let color = Math.random() < 0.5 ? "white" : "black";
         if (taken.includes(color)) color = (color === "white" ? "black" : "white");
