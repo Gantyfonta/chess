@@ -4,14 +4,17 @@
   <meta charset="utf-8">
   <title>Firebase Chess Rooms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.css">
+
+  <!-- Correct chessboard.js CSS + JS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+
   <style>
     body { font-family: sans-serif; display:flex; flex-direction:column; align-items:center; margin:20px; }
     #board { width: 400px; margin:20px; display:none; }
-    #status, #winner { margin:10px; font-weight:bold; }
-    #roomForm { margin:20px; }
+    #status, #winner, #colorInfo { margin:10px; font-weight:bold; }
     #winner { font-size:20px; color:#b00; }
-    button { padding:6px 12px; }
+    button { padding:6px 12px; margin:5px; }
   </style>
 </head>
 <body>
@@ -25,18 +28,17 @@
 
   <!-- Game UI -->
   <div id="gameUI" style="display:none;">
+    <div id="colorInfo"></div>
     <div id="board"></div>
     <div id="status"></div>
     <div id="winner" style="display:none;"></div>
     <button id="continueBtn" style="display:none;">Continue</button>
   </div>
 
-  <!-- Firebase + Chess -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
     import { getDatabase, ref, set, get, update, onValue, push } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
     import "https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js";
-    import "https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.js";
 
     // Firebase config
     const firebaseConfig = {
@@ -67,6 +69,7 @@
     const winnerEl = document.getElementById("winner");
     const continueBtn = document.getElementById("continueBtn");
     const boardEl = document.getElementById("board");
+    const colorInfoEl = document.getElementById("colorInfo");
 
     function updateStatus() {
       if (game.in_checkmate()) {
@@ -85,7 +88,7 @@
     }
 
     function onDrop(source, target) {
-      if (!myColor) return "snapback";
+      if (!myColor) return "snapback"; // spectators can't move
       if ((myColor[0] !== game.turn())) return "snapback"; // not my turn
 
       const move = game.move({ from: source, to: target, promotion: "q" });
@@ -99,7 +102,8 @@
       board = Chessboard("board", {
         draggable: true,
         position: fen,
-        onDrop: onDrop
+        onDrop: onDrop,
+        orientation: (myColor === "black" ? "black" : "white")
       });
     }
 
@@ -130,6 +134,13 @@
         myColor = color;
       } else {
         myColor = null; // spectator
+      }
+
+      // Show color info
+      if (myColor) {
+        colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
+      } else {
+        colorInfoEl.textContent = "You are a spectator";
       }
 
       // Listen for game state
