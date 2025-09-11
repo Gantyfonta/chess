@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <title>Firebase Chess Rooms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  
-<!-- jQuery (needed by chessboard.js) -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
-<!-- chessboard.js -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+  <!-- jQuery (needed by chessboard.js) -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+
+  <!-- chessboard.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
 
   <!-- chess.js (UMD build for browser globals) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
@@ -43,7 +43,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-    import { getDatabase, ref, set, get, update, onValue, push } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+    import { getDatabase, ref, set, get, update, remove, onValue, push, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
     // Firebase config
     const firebaseConfig = {
@@ -63,6 +63,7 @@
     const game = new Chess();
     let board = null;
     let myColor = null;
+    let myId = null; // NEW: unique id for each player
     let roomRef = null;
     let roomId = null;
 
@@ -104,17 +105,16 @@
     }
 
     function initBoard(fen = "start") {
-  board = Chessboard("board", {
-    draggable: true,
-    position: fen,
-    onDrop: onDrop,
-    orientation: (myColor === "black" ? "black" : "white"),
-    pieceTheme: function(piece) {
-      return 'pieces/' + piece + '.png';
+      board = Chessboard("board", {
+        draggable: true,
+        position: fen,
+        onDrop: onDrop,
+        orientation: (myColor === "black" ? "black" : "white"),
+        pieceTheme: function(piece) {
+          return 'pieces/' + piece + '.png';
+        }
+      });
     }
-  });
-}
-
 
     async function joinRoom(code) {
       roomId = code;
@@ -129,21 +129,27 @@
         });
       }
 
-      // Assign player color if less than 2
       const playersRef = ref(db, `rooms/${code}/players`);
+      myId = push(playersRef).key; // unique ID for this connection
+
       const playersSnap = await get(playersRef);
       const players = playersSnap.val() || {};
-      if (Object.keys(players).length < 2) {
-        // assign random color not taken
-        const taken = Object.values(players);
-        let color = Math.random() < 0.5 ? "white" : "black";
-        if (taken.includes(color)) color = (color === "white" ? "black" : "white");
-        const id = push(playersRef).key;
-        await update(playersRef, { [id]: color });
-        myColor = color;
+
+      // Assign color if available, else spectator
+      const taken = Object.values(players);
+      if (!taken.includes("white")) {
+        await update(playersRef, { [myId]: "white" });
+        myColor = "white";
+      } else if (!taken.includes("black")) {
+        await update(playersRef, { [myId]: "black" });
+        myColor = "black";
       } else {
-        myColor = null; // spectator
+        await update(playersRef, { [myId]: "spectator" });
+        myColor = null;
       }
+
+      // Ensure removal on disconnect
+      onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove();
 
       // Show color info
       if (myColor) {
@@ -159,15 +165,44 @@
       initBoard();
       updateStatus();
 
-      // Listen for game state (after board exists)
+      // Listen for game state
       onValue(ref(db, `rooms/${code}/state`), (snap) => {
         const data = snap.val();
         if (data && data.fen) {
           game.load(data.fen);
-          if (board) {
-            board.position(data.fen);
-          }
+          if (board) board.position(data.fen);
           updateStatus();
+        }
+      });
+
+      // NEW: Monitor players and rebalance roles
+      onValue(playersRef, async (snap) => {
+        const players = snap.val() || {};
+        const entries = Object.entries(players);
+
+        const white = entries.find(([id, role]) => role === "white");
+        const black = entries.find(([id, role]) => role === "black");
+        const spectators = entries.filter(([id, role]) => role === "spectator");
+
+        // If white missing, promote first spectator
+        if (!white && spectators.length > 0) {
+          const [sid] = spectators[0];
+          await update(playersRef, { [sid]: "white" });
+        }
+
+        // If black missing, promote first spectator
+        if (!black && spectators.length > 0) {
+          const [sid] = spectators[0];
+          await update(playersRef, { [sid]: "black" });
+        }
+
+        // If no one left, reset game state
+        if (entries.length === 0) {
+          game.reset();
+          await set(roomRef, {
+            players: {},
+            state: { fen: game.fen(), turn: game.turn() }
+          });
         }
       });
     }
