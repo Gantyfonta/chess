@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
 
-  <!-- ✅ Fixed: use UMD version of chess.js that exposes global Chess -->
+  <!-- chess.js (UMD build for browser globals) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
   <style>
@@ -38,7 +38,6 @@
     <button id="continueBtn" style="display:none;">Continue</button>
   </div>
 
-  <!-- Firebase + Game Logic -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
     import { getDatabase, ref, set, get, update, onValue, push } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
@@ -128,6 +127,7 @@
       const playersSnap = await get(playersRef);
       const players = playersSnap.val() || {};
       if (Object.keys(players).length < 2) {
+        // assign random color not taken
         const taken = Object.values(players);
         let color = Math.random() < 0.5 ? "white" : "black";
         if (taken.includes(color)) color = (color === "white" ? "black" : "white");
@@ -145,21 +145,24 @@
         colorInfoEl.textContent = "You are a spectator";
       }
 
-      // Listen for game state
-      onValue(ref(db, `rooms/${code}/state`), (snap) => {
-        const data = snap.val();
-        if (data && data.fen) {
-          game.load(data.fen);
-          board.position(data.fen);
-          updateStatus();
-        }
-      });
-
+      // Switch UI
       roomForm.style.display = "none";
       gameUI.style.display = "block";
       boardEl.style.display = "block";
       initBoard();
       updateStatus();
+
+      // Listen for game state (after board exists)
+      onValue(ref(db, `rooms/${code}/state`), (snap) => {
+        const data = snap.val();
+        if (data && data.fen) {
+          game.load(data.fen);
+          if (board) {
+            board.position(data.fen);
+          }
+          updateStatus();
+        }
+      });
     }
 
     joinBtn.onclick = () => {
