@@ -5,9 +5,12 @@
   <title>Firebase Chess Rooms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
-  <!-- Correct chessboard.js CSS + JS -->
+  <!-- chessboard.js -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+
+  <!-- chess.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js"></script>
 
   <style>
     body { font-family: sans-serif; display:flex; flex-direction:column; align-items:center; margin:20px; }
@@ -38,7 +41,6 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
     import { getDatabase, ref, set, get, update, onValue, push } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
-    import "https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.13.4/chess.min.js";
 
     // Firebase config
     const firebaseConfig = {
