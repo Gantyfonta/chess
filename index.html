@@ -69,7 +69,7 @@
     let roomId = null;
 
     // Local ranking system
-    let stats = JSON.parse(localStorage.getItem("chessStats")) || { wins: 0, losses: 0, draws: 0 };
+    let stats = JSON.parse(localStorage.getItem("chessStats")) || { points: 0, wins: 0, losses: 0, draws: 0 };
 
     const roomForm = document.getElementById("roomForm");
     const roomCodeInput = document.getElementById("roomCode");
@@ -83,7 +83,7 @@
     const rankStatsEl = document.getElementById("rankStats");
 
     function renderStats() {
-      rankStatsEl.textContent = `Wins: ${stats.wins} | Losses: ${stats.losses} | Draws: ${stats.draws}`;
+      rankStatsEl.textContent = `Points: ${stats.points} | Wins: ${stats.wins} | Losses: ${stats.losses} | Draws: ${stats.draws}`;
     }
 
     function saveStats() {
@@ -102,8 +102,10 @@
         if (myColor) {
           if (winner.toLowerCase() === myColor) {
             stats.wins++;
+            stats.points += 2;
           } else {
             stats.losses++;
+            stats.points -= 2;
           }
           saveStats();
         }
@@ -113,6 +115,7 @@
         statusEl.textContent = "Game drawn.";
         if (myColor) {
           stats.draws++;
+          stats.points += 1;
           saveStats();
         }
         return;
