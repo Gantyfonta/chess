@@ -21,6 +21,8 @@
     #status, #winner, #colorInfo, #rankStats { margin:10px; font-weight:bold; }
     #winner { font-size:20px; color:#b00; }
     button { padding:6px 12px; margin:5px; }
+    #cheatPanel { display:none; border:1px solid #333; padding:10px; margin-top:15px; background:#f0f0f0; }
+    #cheatPanel button { display:block; margin:5px 0; }
   </style>
 </head>
 <body>
@@ -39,25 +41,23 @@
     <div id="status"></div>
     <div id="winner" style="display:none;"></div>
     <button id="continueBtn" style="display:none;">Continue</button>
-    <div id="rankStats"></div> <!-- NEW: ranking stats -->
+    <div id="rankStats"></div>
+    <!-- Cheat Panel -->
+    <div id="cheatPanel">
+      <h3>Magnus Panel</h3>
+      <button id="doubleMoveBtn">Enable Double Move</button>
+      <button id="teleportBtn">Teleport Piece</button>
+      <button id="instantWinBtn">Instant Win</button>
+      <button id="instantLossBtn">Instant Loss</button>
+      <button id="instantTieBtn">Instant Tie</button>
+    </div>
   </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
     import { getDatabase, ref, set, get, update, remove, onValue, push, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-    // Firebase config
-    const firebaseConfig = {
-      apiKey: "AIzaSyDvU2DH8o3baDrRPmihP45R39OtSjhk2aA",
-      authDomain: "chess-4b89c.firebaseapp.com",
-      databaseURL: "https://chess-4b89c-default-rtdb.firebaseio.com",
-      projectId: "chess-4b89c",
-      storageBucket: "chess-4b89c.firebasestorage.app",
-      messagingSenderId: "1052008395512",
-      appId: "1:1052008395512:web:c3dc29b8da9480b25a810d",
-      measurementId: "G-1L9KKDPGYR"
-    };
-
+    const firebaseConfig = { /* your config */ };
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
@@ -68,7 +68,8 @@
     let roomRef = null;
     let roomId = null;
 
-    // Local ranking system
+    let allowDoubleMove = false;
+
     let stats = JSON.parse(localStorage.getItem("chessStats")) || { points: 0, wins: 0, losses: 0, draws: 0 };
 
     const roomForm = document.getElementById("roomForm");
@@ -81,6 +82,7 @@
     const boardEl = document.getElementById("board");
     const colorInfoEl = document.getElementById("colorInfo");
     const rankStatsEl = document.getElementById("rankStats");
+    const cheatPanel = document.getElementById("cheatPanel");
 
     function renderStats() {
       rankStatsEl.textContent = `Points: ${stats.points} | Wins: ${stats.wins} | Losses: ${stats.losses} | Draws: ${stats.draws}`;
@@ -97,27 +99,16 @@
         winnerEl.textContent = winner + " wins!";
         winnerEl.style.display = "block";
         continueBtn.style.display = "inline-block";
-
-        // Update local ranking
         if (myColor) {
-          if (winner.toLowerCase() === myColor) {
-            stats.wins++;
-            stats.points += 2;
-          } else {
-            stats.losses++;
-            stats.points -= 2;
-          }
+          if (winner.toLowerCase() === myColor) { stats.wins++; stats.points += 2; }
+          else { stats.losses++; stats.points -= 2; }
           saveStats();
         }
         return;
       }
       if (game.in_draw()) {
         statusEl.textContent = "Game drawn.";
-        if (myColor) {
-          stats.draws++;
-          stats.points += 1;
-          saveStats();
-        }
+        if (myColor) { stats.draws++; stats.points += 1; saveStats(); }
         return;
       }
       const moveColor = game.turn() === "w" ? "White" : "Black";
@@ -131,7 +122,13 @@
       const move = game.move({ from: source, to: target, promotion: "q" });
       if (move === null) return "snapback";
 
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+      if (!allowDoubleMove) {
+        set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+      } else {
+        // Don't update turn yet (double move)
+        set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+        game.undo(); // revert so you can move again (hacky)
+      }
       updateStatus();
     }
 
@@ -141,106 +138,98 @@
         position: fen,
         onDrop: onDrop,
         orientation: (myColor === "black" ? "black" : "white"),
-        pieceTheme: function(piece) {
-          return 'pieces/' + piece + '.png';
-        }
+        pieceTheme: (piece) => 'pieces/' + piece + '.png'
       });
     }
+
+    // Cheats
+    document.getElementById("doubleMoveBtn").onclick = () => {
+      allowDoubleMove = !allowDoubleMove;
+      alert("Double move: " + (allowDoubleMove ? "ON" : "OFF"));
+    };
+
+    document.getElementById("teleportBtn").onclick = () => {
+      const from = prompt("Move from square (e.g., e2):");
+      const to = prompt("Move to square (e.g., e4):");
+      if (from && to) {
+        game.remove(from);
+        game.put({ type: 'p', color: game.turn() }, to); // simple teleport hack
+        set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+        board.position(game.fen());
+      }
+    };
+
+    document.getElementById("instantWinBtn").onclick = () => {
+      winnerEl.textContent = "You declared instant win!";
+      winnerEl.style.display = "block";
+    };
+
+    document.getElementById("instantLossBtn").onclick = () => {
+      winnerEl.textContent = "You declared instant loss!";
+      winnerEl.style.display = "block";
+    };
+
+    document.getElementById("instantTieBtn").onclick = () => {
+      winnerEl.textContent = "You declared instant tie!";
+      winnerEl.style.display = "block";
+    };
+
+    // Unlock cheat panel when typing 'magnus'
+    document.addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() === "m") {
+        let buffer = "";
+        document.addEventListener("keypress", function handler(ev) {
+          buffer += ev.key.toLowerCase();
+          if (buffer.includes("magnus")) {
+            cheatPanel.style.display = "block";
+            document.removeEventListener("keypress", handler);
+          }
+        });
+      }
+    });
 
     async function joinRoom(code) {
       roomId = code;
       roomRef = ref(db, "rooms/" + code);
-
       const snapshot = await get(roomRef);
       if (!snapshot.exists()) {
-        await set(roomRef, {
-          players: {},
-          state: { fen: game.fen(), turn: game.turn() }
-        });
+        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } });
       }
-
       const playersRef = ref(db, `rooms/${code}/players`);
       myId = push(playersRef).key;
-
       const playersSnap = await get(playersRef);
       const players = playersSnap.val() || {};
-
       const taken = Object.values(players);
-      if (!taken.includes("white")) {
-        await update(playersRef, { [myId]: "white" });
-        myColor = "white";
-      } else if (!taken.includes("black")) {
-        await update(playersRef, { [myId]: "black" });
-        myColor = "black";
-      } else {
-        await update(playersRef, { [myId]: "spectator" });
-        myColor = null;
-      }
-
+      if (!taken.includes("white")) { await update(playersRef, { [myId]: "white" }); myColor = "white"; }
+      else if (!taken.includes("black")) { await update(playersRef, { [myId]: "black" }); myColor = "black"; }
+      else { await update(playersRef, { [myId]: "spectator" }); myColor = null; }
       onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove();
-
-      if (myColor) {
-        colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
-      } else {
-        colorInfoEl.textContent = "You are a spectator";
-      }
-
+      if (myColor) colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
+      else colorInfoEl.textContent = "You are a spectator";
       roomForm.style.display = "none";
       gameUI.style.display = "block";
       boardEl.style.display = "block";
       initBoard();
       updateStatus();
       renderStats();
-
       onValue(ref(db, `rooms/${code}/state`), (snap) => {
         const data = snap.val();
-        if (data && data.fen) {
-          game.load(data.fen);
-          if (board) board.position(data.fen);
-          updateStatus();
-        }
+        if (data && data.fen) { game.load(data.fen); if (board) board.position(data.fen); updateStatus(); }
       });
-
       onValue(playersRef, async (snap) => {
         const players = snap.val() || {};
         const entries = Object.entries(players);
-
         const white = entries.find(([id, role]) => role === "white");
         const black = entries.find(([id, role]) => role === "black");
         const spectators = entries.filter(([id, role]) => role === "spectator");
-
-        if (!white && spectators.length > 0) {
-          const [sid] = spectators[0];
-          await update(playersRef, { [sid]: "white" });
-        }
-
-        if (!black && spectators.length > 0) {
-          const [sid] = spectators[0];
-          await update(playersRef, { [sid]: "black" });
-        }
-
-        if (entries.length === 0) {
-          game.reset();
-          await set(roomRef, {
-            players: {},
-            state: { fen: game.fen(), turn: game.turn() }
-          });
-        }
+        if (!white && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "white" }); }
+        if (!black && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "black" }); }
+        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } }); }
       });
     }
 
-    joinBtn.onclick = () => {
-      const code = roomCodeInput.value.trim();
-      if (code) joinRoom(code);
-    };
-
-    continueBtn.onclick = () => {
-      game.reset();
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
-      winnerEl.style.display = "none";
-      continueBtn.style.display = "none";
-      updateStatus();
-    };
+    joinBtn.onclick = () => { const code = roomCodeInput.value.trim(); if (code) joinRoom(code); };
+    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
   </script>
 </body>
 </html>
