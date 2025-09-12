@@ -135,9 +135,8 @@
       if (!allowDoubleMove) {
         set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
       } else {
-        // Don't update turn yet (double move)
-        set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
-        game.undo(); // revert so you can move again (hacky)
+        // Force turn to stay with the same color for double move
+        set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: myColor[0] });
       }
       updateStatus();
     }
@@ -162,10 +161,13 @@
       const from = prompt("Move from square (e.g., e2):");
       const to = prompt("Move to square (e.g., e4):");
       if (from && to) {
-        game.remove(from);
-        game.put({ type: 'p', color: game.turn() }, to); // simple teleport hack
-        set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
-        board.position(game.fen());
+        const piece = game.get(from);
+        if (piece) {
+          game.remove(from);
+          game.put(piece, to);
+          set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+          board.position(game.fen());
+        }
       }
     };
 
