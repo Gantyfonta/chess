@@ -18,7 +18,7 @@
   <style>
     body { font-family: cursive; display:flex; flex-direction:column; align-items:center; margin:20px; }
     #board { width: 400px; margin:20px; display:none; }
-    #status, #winner, #colorInfo { margin:10px; font-weight:bold; }
+    #status, #winner, #colorInfo, #rankStats { margin:10px; font-weight:bold; }
     #winner { font-size:20px; color:#b00; }
     button { padding:6px 12px; margin:5px; }
   </style>
@@ -39,6 +39,7 @@
     <div id="status"></div>
     <div id="winner" style="display:none;"></div>
     <button id="continueBtn" style="display:none;">Continue</button>
+    <div id="rankStats"></div> <!-- NEW: ranking stats -->
   </div>
 
   <script type="module">
@@ -63,9 +64,12 @@
     const game = new Chess();
     let board = null;
     let myColor = null;
-    let myId = null; // NEW: unique id for each player
+    let myId = null;
     let roomRef = null;
     let roomId = null;
+
+    // Local ranking system
+    let stats = JSON.parse(localStorage.getItem("chessStats")) || { wins: 0, losses: 0, draws: 0 };
 
     const roomForm = document.getElementById("roomForm");
     const roomCodeInput = document.getElementById("roomCode");
@@ -76,6 +80,16 @@
     const continueBtn = document.getElementById("continueBtn");
     const boardEl = document.getElementById("board");
     const colorInfoEl = document.getElementById("colorInfo");
+    const rankStatsEl = document.getElementById("rankStats");
+
+    function renderStats() {
+      rankStatsEl.textContent = `Wins: ${stats.wins} | Losses: ${stats.losses} | Draws: ${stats.draws}`;
+    }
+
+    function saveStats() {
+      localStorage.setItem("chessStats", JSON.stringify(stats));
+      renderStats();
+    }
 
     function updateStatus() {
       if (game.in_checkmate()) {
@@ -83,10 +97,24 @@
         winnerEl.textContent = winner + " wins!";
         winnerEl.style.display = "block";
         continueBtn.style.display = "inline-block";
+
+        // Update local ranking
+        if (myColor) {
+          if (winner.toLowerCase() === myColor) {
+            stats.wins++;
+          } else {
+            stats.losses++;
+          }
+          saveStats();
+        }
         return;
       }
       if (game.in_draw()) {
         statusEl.textContent = "Game drawn.";
+        if (myColor) {
+          stats.draws++;
+          saveStats();
+        }
         return;
       }
       const moveColor = game.turn() === "w" ? "White" : "Black";
@@ -94,11 +122,11 @@
     }
 
     function onDrop(source, target) {
-      if (!myColor) return "snapback"; // spectators can't move
-      if ((myColor[0] !== game.turn())) return "snapback"; // not my turn
+      if (!myColor) return "snapback";
+      if ((myColor[0] !== game.turn())) return "snapback";
 
       const move = game.move({ from: source, to: target, promotion: "q" });
-      if (move === null) return "snapback"; // invalid
+      if (move === null) return "snapback";
 
       set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
       updateStatus();
@@ -122,7 +150,6 @@
 
       const snapshot = await get(roomRef);
       if (!snapshot.exists()) {
-        // New room
         await set(roomRef, {
           players: {},
           state: { fen: game.fen(), turn: game.turn() }
@@ -130,12 +157,11 @@
       }
 
       const playersRef = ref(db, `rooms/${code}/players`);
-      myId = push(playersRef).key; // unique ID for this connection
+      myId = push(playersRef).key;
 
       const playersSnap = await get(playersRef);
       const players = playersSnap.val() || {};
 
-      // Assign color if available, else spectator
       const taken = Object.values(players);
       if (!taken.includes("white")) {
         await update(playersRef, { [myId]: "white" });
@@ -148,24 +174,21 @@
         myColor = null;
       }
 
-      // Ensure removal on disconnect
       onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove();
 
-      // Show color info
       if (myColor) {
         colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
       } else {
         colorInfoEl.textContent = "You are a spectator";
       }
 
-      // Switch UI
       roomForm.style.display = "none";
       gameUI.style.display = "block";
       boardEl.style.display = "block";
       initBoard();
       updateStatus();
+      renderStats();
 
-      // Listen for game state
       onValue(ref(db, `rooms/${code}/state`), (snap) => {
         const data = snap.val();
         if (data && data.fen) {
@@ -175,7 +198,6 @@
         }
       });
 
-      // NEW: Monitor players and rebalance roles
       onValue(playersRef, async (snap) => {
         const players = snap.val() || {};
         const entries = Object.entries(players);
@@ -184,19 +206,16 @@
         const black = entries.find(([id, role]) => role === "black");
         const spectators = entries.filter(([id, role]) => role === "spectator");
 
-        // If white missing, promote first spectator
         if (!white && spectators.length > 0) {
           const [sid] = spectators[0];
           await update(playersRef, { [sid]: "white" });
         }
 
-        // If black missing, promote first spectator
         if (!black && spectators.length > 0) {
           const [sid] = spectators[0];
           await update(playersRef, { [sid]: "black" });
         }
 
-        // If no one left, reset game state
         if (entries.length === 0) {
           game.reset();
           await set(roomRef, {
