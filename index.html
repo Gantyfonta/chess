@@ -136,10 +136,6 @@
       const move = game.move({ from: source, to: target, promotion: "q" });
       if (move === null) return "snapback";
 
-      if (variant === "portal") {
-        handlePortalMove(move); // ✅ will only run if both picked portal
-      }
-
       set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
       updateStatus();
     }
@@ -154,7 +150,7 @@
       });
     }
 
-    // Cheats
+    // Cheats (Double Move removed)
     document.getElementById("teleportBtn").onclick = () => {
       const from = prompt("Move from square (e.g., e2):");
       const to = prompt("Move to square (e.g., e4):");
@@ -201,49 +197,28 @@
     async function joinRoom(code) {
       roomId = code;
       roomRef = ref(db, "rooms/" + code);
+      variant = variantSelect.value;
       const snapshot = await get(roomRef);
       if (!snapshot.exists()) {
-        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant: "regular" } });
+        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant } });
       }
-
       const playersRef = ref(db, `rooms/${code}/players`);
       myId = push(playersRef).key;
       const playersSnap = await get(playersRef);
       const players = playersSnap.val() || {};
       const taken = Object.values(players);
-
       if (!taken.includes("white")) { await update(playersRef, { [myId]: "white" }); myColor = "white"; }
       else if (!taken.includes("black")) { await update(playersRef, { [myId]: "black" }); myColor = "black"; }
       else { await update(playersRef, { [myId]: "spectator" }); myColor = null; }
-
       onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove();
-
       if (myColor) colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
       else colorInfoEl.textContent = "You are a spectator";
-
-      // Save my variant choice
-      await update(ref(db, `rooms/${code}/playersVariant`), { [myId]: variantSelect.value });
-
-      // Decide variant only if both agree
-      onValue(ref(db, `rooms/${code}/playersVariant`), (snap) => {
-        const variants = snap.val() || {};
-        const vals = Object.values(variants);
-
-        if (vals.length === 2 && new Set(vals).size === 1 && vals[0] === "portal") {
-          variant = "portal";
-        } else {
-          variant = "regular";
-        }
-        set(ref(db, `rooms/${code}/state/variant`), variant);
-      });
-
       roomForm.style.display = "none";
       gameUI.style.display = "block";
       boardEl.style.display = "block";
       initBoard();
       updateStatus();
       renderStats();
-
       onValue(ref(db, `rooms/${code}/state`), (snap) => {
         const data = snap.val();
         if (data && data.fen) {
@@ -253,7 +228,6 @@
           updateStatus();
         }
       });
-
       onValue(playersRef, async (snap) => {
         const players = snap.val() || {};
         const entries = Object.entries(players);
@@ -262,22 +236,12 @@
         const spectators = entries.filter(([id, role]) => role === "spectator");
         if (!white && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "white" }); }
         if (!black && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "black" }); }
-        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant: "regular" } }); }
+        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant } }); }
       });
     }
 
-    joinBtn.onclick = () => {
-      const code = roomCodeInput.value.trim();
-      if (code) joinRoom(code);
-    };
-
-    continueBtn.onclick = () => {
-      game.reset();
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
-      winnerEl.style.display = "none";
-      continueBtn.style.display = "none";
-      updateStatus();
-    };
+    joinBtn.onclick = () => { const code = roomCodeInput.value.trim(); if (code) joinRoom(code); };
+    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
   </script>
 </body>
 </html>
