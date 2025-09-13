@@ -8,9 +8,9 @@
   <!-- jQuery (needed by chessboard.js) -->
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 
-  <!-- Correct chessboard.js (global Chessboard available) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboardjs/1.0.0/chessboard-1.0.0.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboardjs/1.0.0/chessboard-1.0.0.min.js"></script>
+  <!-- chessboard.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
 
   <!-- chess.js (UMD build for browser globals) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
@@ -20,7 +20,7 @@
     #board { width: 400px; margin:20px; display:none; }
     #status, #winner, #colorInfo, #rankStats { margin:10px; font-weight:bold; }
     #winner { font-size:20px; color:#b00; }
-    button { padding:6px 12px; margin:5px; }
+    button, select { padding:6px 12px; margin:5px; }
     #cheatPanel { display:none; border:1px solid #333; padding:10px; margin-top:15px; background:#f0f0f0; }
     #cheatPanel button { display:block; margin:5px 0; }
   </style>
@@ -31,6 +31,11 @@
   <!-- Room join form -->
   <div id="roomForm">
     <input type="text" id="roomCode" placeholder="Enter room code">
+    <select id="variantSelect">
+      <option value="regular">Regular Chess</option>
+      <option value="portal">Portal Chess</option>
+      <option value="duck">Duck Chess</option>
+    </select>
     <button id="joinBtn">Join Room Code</button>
   </div>
 
@@ -76,11 +81,13 @@
     let myId = null;
     let roomRef = null;
     let roomId = null;
+    let variant = "regular";
 
     let stats = JSON.parse(localStorage.getItem("chessStats")) || { points: 0, wins: 0, losses: 0, draws: 0 };
 
     const roomForm = document.getElementById("roomForm");
     const roomCodeInput = document.getElementById("roomCode");
+    const variantSelect = document.getElementById("variantSelect");
     const joinBtn = document.getElementById("joinBtn");
     const gameUI = document.getElementById("gameUI");
     const statusEl = document.getElementById("status");
@@ -129,7 +136,7 @@
       const move = game.move({ from: source, to: target, promotion: "q" });
       if (move === null) return "snapback";
 
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
       updateStatus();
     }
 
@@ -143,7 +150,7 @@
       });
     }
 
-    // Cheats (double move removed)
+    // Cheats (Double Move removed)
     document.getElementById("teleportBtn").onclick = () => {
       const from = prompt("Move from square (e.g., e2):");
       const to = prompt("Move to square (e.g., e4):");
@@ -152,7 +159,7 @@
         if (piece) {
           game.remove(from);
           game.put(piece, to);
-          set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+          set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
           board.position(game.fen());
         }
       }
@@ -190,9 +197,10 @@
     async function joinRoom(code) {
       roomId = code;
       roomRef = ref(db, "rooms/" + code);
+      variant = variantSelect.value;
       const snapshot = await get(roomRef);
       if (!snapshot.exists()) {
-        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } });
+        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant } });
       }
       const playersRef = ref(db, `rooms/${code}/players`);
       myId = push(playersRef).key;
@@ -213,7 +221,12 @@
       renderStats();
       onValue(ref(db, `rooms/${code}/state`), (snap) => {
         const data = snap.val();
-        if (data && data.fen) { game.load(data.fen); if (board) board.position(data.fen); updateStatus(); }
+        if (data && data.fen) {
+          game.load(data.fen);
+          if (board) board.position(data.fen);
+          if (data.variant) variant = data.variant;
+          updateStatus();
+        }
       });
       onValue(playersRef, async (snap) => {
         const players = snap.val() || {};
@@ -223,12 +236,12 @@
         const spectators = entries.filter(([id, role]) => role === "spectator");
         if (!white && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "white" }); }
         if (!black && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "black" }); }
-        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } }); }
+        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant } }); }
       });
     }
 
     joinBtn.onclick = () => { const code = roomCodeInput.value.trim(); if (code) joinRoom(code); };
-    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
+    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
   </script>
 </body>
 </html>
