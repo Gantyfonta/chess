@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Portal Chess</title>
+  <title>Chess</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <!-- jQuery (needed by chessboard.js) -->
@@ -12,21 +12,21 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
 
+  <!-- chess.js (UMD build for browser globals) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
   <style>
     body { font-family: cursive; display:flex; flex-direction:column; align-items:center; margin:20px; }
-    #board { width: 400px; margin:20px; display:none; position:relative; }
+    #board { width: 400px; margin:20px; display:none; }
     #status, #winner, #colorInfo, #rankStats { margin:10px; font-weight:bold; }
     #winner { font-size:20px; color:#b00; }
     button, select { padding:6px 12px; margin:5px; }
     #cheatPanel { display:none; border:1px solid #333; padding:10px; margin-top:15px; background:#f0f0f0; }
     #cheatPanel button { display:block; margin:5px 0; }
-    .portal-marker { position:absolute; width:48px; height:48px; pointer-events:none; transform:translate(-50%,-50%); }
-    .placing-hint { font-size:13px; color:#333; margin-top:6px; }
-    #placePortalBtn { margin-left: 8px; }
   </style>
 </head>
 <body>
-  <h2>Portal Chess</h2>
+  <h2>Chess</h2>
 
   <!-- Room join form -->
   <div id="roomForm">
@@ -43,16 +43,10 @@
   <div id="gameUI" style="display:none;">
     <div id="colorInfo"></div>
     <div id="board"></div>
-    <div class="placing-hint" id="placingHint" style="display:none;"></div>
     <div id="status"></div>
     <div id="winner" style="display:none;"></div>
     <button id="continueBtn" style="display:none;">Continue</button>
     <div id="rankStats"></div>
-    <!-- Portal controls -->
-    <div id="portalControls" style="display:none;">
-      <button id="placePortalBtn">Place Portal (once)</button>
-      <button id="removePortalBtn" style="display:none;">Remove My Portal</button>
-    </div>
     <!-- Cheat Panel -->
     <div id="cheatPanel">
       <h3>Magnus Panel</h3>
@@ -63,20 +57,10 @@
     </div>
   </div>
 
-  <!-- Firebase + game code as module so we can import chess.js ESM -->
   <script type="module">
-    // ----------------------------
-    // Imports
-    // ----------------------------
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
     import { getDatabase, ref, set, get, update, remove, onValue, push, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
-    // ESM chess.js import (provides Chess as an export)
-    import { Chess } from "https://cdn.jsdelivr.net/npm/chess.js@1.0.0/dist/chess.mjs";
-
-    // ----------------------------
-    // Firebase config (your values kept)
-    // ----------------------------
     const firebaseConfig = {
       apiKey: "AIzaSyDvU2DH8o3baDrRPmihP45R39OtSjhk2aA",
       authDomain: "chess-4b89c.firebaseapp.com",
@@ -91,12 +75,9 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // ----------------------------
-    // Game state
-    // ----------------------------
     const game = new Chess();
     let board = null;
-    let myColor = null; // "white" or "black" or null for spectator
+    let myColor = null;
     let myId = null;
     let roomRef = null;
     let roomId = null;
@@ -104,7 +85,6 @@
 
     let stats = JSON.parse(localStorage.getItem("chessStats")) || { points: 0, wins: 0, losses: 0, draws: 0 };
 
-    // DOM refs
     const roomForm = document.getElementById("roomForm");
     const roomCodeInput = document.getElementById("roomCode");
     const variantSelect = document.getElementById("variantSelect");
@@ -117,10 +97,6 @@
     const colorInfoEl = document.getElementById("colorInfo");
     const rankStatsEl = document.getElementById("rankStats");
     const cheatPanel = document.getElementById("cheatPanel");
-    const portalControls = document.getElementById("portalControls");
-    const placePortalBtn = document.getElementById("placePortalBtn");
-    const removePortalBtn = document.getElementById("removePortalBtn");
-    const placingHint = document.getElementById("placingHint");
 
     function renderStats() {
       rankStatsEl.textContent = `Points: ${stats.points} | Wins: ${stats.wins} | Losses: ${stats.losses} | Draws: ${stats.draws}`;
@@ -153,11 +129,22 @@
       statusEl.textContent = moveColor + " to move" + (game.in_check() ? " (in check)" : "");
     }
 
-    // ----------------------------
-    // Board init + helpers
-    // ----------------------------
+    function onDrop(source, target) {
+      if (!myColor) return "snapback";
+      if ((myColor[0] !== game.turn())) return "snapback";
+
+      const move = game.move({ from: source, to: target, promotion: "q" });
+      if (move === null) return "snapback";
+
+      if (variant === "portal") {
+        handlePortalMove(move); // ✅ will only run if both picked portal
+      }
+
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
+      updateStatus();
+    }
+
     function initBoard(fen = "start") {
-      // init chessboard with draggable pieces
       board = Chessboard("board", {
         draggable: true,
         position: fen,
@@ -165,276 +152,9 @@
         orientation: (myColor === "black" ? "black" : "white"),
         pieceTheme: (piece) => 'pieces/' + piece + '.png'
       });
-
-      // attach click listeners for portal placement on squares (by classname square-<sq>)
-      attachSquareClickHandlers();
     }
 
-    function attachSquareClickHandlers() {
-      // Remove old listeners to avoid duplication
-      const squares = boardEl.querySelectorAll("[class^='square-']");
-      squares.forEach(sq => {
-        sq.onclick = handleSquareClickForPortal;
-      });
-    }
-
-    // Map of portal markers currently shown in DOM (color -> img element)
-    const portalMarkers = { white: null, black: null };
-
-    // Places a portal visually on the board (absolute positioned img inside board container)
-    function renderPortals(portals) {
-      // Clear existing markers
-      ['white','black'].forEach(c => {
-        if (portalMarkers[c]) {
-          portalMarkers[c].remove();
-          portalMarkers[c] = null;
-        }
-      });
-      if (!board) return;
-      // If no portals provided, do nothing
-      if (!portals) return;
-      // For each portal, find the square element and place an image
-      ['white','black'].forEach(color => {
-        const sq = portals && portals[color];
-        if (sq) {
-          const squareEl = boardEl.querySelector('.square-' + sq);
-          if (squareEl) {
-            // compute center of square relative to board container
-            const rectBoard = boardEl.getBoundingClientRect();
-            const rectSq = squareEl.getBoundingClientRect();
-            const x = rectSq.left - rectBoard.left + rectSq.width/2;
-            const y = rectSq.top - rectBoard.top + rectSq.height/2;
-            const img = document.createElement('img');
-            img.src = 'pieces/portal.png'; // your portal image path
-            img.className = 'portal-marker';
-            img.style.left = x + 'px';
-            img.style.top = y + 'px';
-            img.style.zIndex = 50;
-            img.dataset.square = sq;
-            img.dataset.color = color;
-            boardEl.appendChild(img);
-            portalMarkers[color] = img;
-          }
-        }
-      });
-    }
-
-    // Update board position and re-render portals correctly (call whenever state changes)
-    function updateBoardFromGameAndPortals(portals) {
-      if (!board) return;
-      board.position(game.fen());
-      // slight delay to ensure squares exist
-      setTimeout(() => renderPortals(portals), 20);
-    }
-
-    // ----------------------------
-    // Portal placement interaction
-    // ----------------------------
-    let placingPortalFor = null; // "white" or "black" or null if not currently placing
-    let localPortalsCache = { white: null, black: null }; // local view before pushing to firebase
-
-    placePortalBtn.onclick = async () => {
-      if (!myColor) { alert("Only players can place portals."); return; }
-      if (variant !== "portal") { alert("Portal placement is only available in Portal Chess variant."); return; }
-      // Check if already placed
-      const remote = (await get(ref(db, `rooms/${roomId}/portals`))).val() || {};
-      if (remote[myColor]) {
-        alert("You've already placed your portal. Remove it first to place again.");
-        return;
-      }
-      placingPortalFor = myColor;
-      placingHint.style.display = "block";
-      placingHint.textContent = `Click a square to place your ${myColor} portal (can't be on starting rank or occupied at placement).`;
-    };
-
-    removePortalBtn.onclick = async () => {
-      if (!myColor) return;
-      const portalsRef = ref(db, `rooms/${roomId}/portals`);
-      const remote = (await get(portalsRef)).val() || {};
-      if (remote[myColor]) {
-        await update(portalsRef, { [myColor]: null });
-        await set(ref(db, `rooms/${roomId}/portals/${myColor}`), null); // remove key
-      }
-    };
-
-    // handler when any board square is clicked (for portal placement)
-    async function handleSquareClickForPortal(ev) {
-      if (!placingPortalFor) return;
-      // identify which square was clicked
-      const sqClass = this.className.split(' ').find(c => c.startsWith('square-'));
-      if (!sqClass) return;
-      const square = sqClass.replace('square-','');
-      // disallow placing on starting squares (king/queen rows) or if occupied
-      const occupied = game.get(square);
-      const fileRank = parseInt(square.slice(1), 10);
-      if (occupied) { alert("Cannot place portal on an occupied square."); placingPortalFor = null; placingHint.style.display='none'; return; }
-      // optional restriction: disallow starting back rank (1 and 8)
-      if (fileRank === 1 || fileRank === 8) {
-        const ok = confirm("You are placing on rank 1 or 8. Are you sure? (commonly disallowed)");
-        if (!ok) { placingPortalFor = null; placingHint.style.display='none'; return; }
-      }
-
-      // push to firebase
-      const portalsRef = ref(db, `rooms/${roomId}/portals`);
-      const updateObj = {};
-      updateObj[placingPortalFor] = square;
-      await update(portalsRef, updateObj);
-
-      placingPortalFor = null;
-      placingHint.style.display = "none";
-    }
-
-    // ----------------------------
-    // On-move logic -> includes portal teleport
-    // ----------------------------
-    async function onDrop(source, target) {
-      if (!myColor) return "snapback";
-      if ((myColor[0] !== game.turn())) return "snapback";
-
-      // Attempt move
-      const move = game.move({ from: source, to: target, promotion: "q" });
-      if (move === null) return "snapback";
-
-      // Save the current fen first (move applied)
-      const stateRef = ref(db, `rooms/${roomId}/state`);
-      await set(stateRef, { fen: game.fen(), turn: game.turn(), variant });
-
-      // After making the move, check portal teleport rules if variant is portal
-      if (variant === "portal") {
-        const portalsSnap = await get(ref(db, `rooms/${roomId}/portals`)));
-        const portals = portalsSnap.val() || {};
-        // if piece moved onto a portal square (either player's portal), perform teleport
-        const landingIsPortal = (target === portals.white) || (target === portals.black);
-        if (landingIsPortal) {
-          const originPortalColor = (target === portals.white) ? 'white' : 'black';
-          const otherPortalSquare = (target === portals.white) ? portals.black : portals.white;
-          // only teleport if the other portal exists
-          if (otherPortalSquare) {
-            // get the moved piece from target
-            const movedPiece = game.get(target);
-            if (movedPiece) {
-              // Check if the other portal square is occupied
-              const otherOccupant = game.get(otherPortalSquare);
-              // If occupied by same-color piece -> teleport fails
-              if (otherOccupant && otherOccupant.color === movedPiece.color) {
-                // teleport fails: leave piece where it landed (target)
-                // no-op but we update state to ensure others see it
-                await set(stateRef, { fen: game.fen(), turn: game.turn(), variant });
-              } else {
-                // teleport succeeds:
-                // remove the piece from the landing square and place onto the other portal square
-                game.remove(target);
-                // If otherOccupant is opponent, this will overwrite (capture)
-                game.put(movedPiece, otherPortalSquare);
-                // Note: do NOT trigger portal again (we don't want teleport loops) because we only teleport when landing square equals a portal and we just placed the piece on otherPortalSquare which might also be a portal; to avoid loops we will not reprocess further teleports in this single handler.
-                await set(stateRef, { fen: game.fen(), turn: game.turn(), variant });
-              }
-            }
-          }
-        }
-      }
-
-      updateStatus();
-      // Update local board to reflect any teleport changes
-      if (board) board.position(game.fen());
-    }
-
-    // ----------------------------
-    // Firebase room join and live updates
-    // ----------------------------
-    async function joinRoom(code) {
-      roomId = code;
-      roomRef = ref(db, "rooms/" + code);
-      variant = variantSelect.value;
-      const snapshot = await get(roomRef);
-      if (!snapshot.exists()) {
-        // initialize room structure
-        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant }, portals: {} });
-      }
-      const playersRef = ref(db, `rooms/${code}/players`);
-      myId = push(playersRef).key;
-      const playersSnap = await get(playersRef);
-      const players = playersSnap.val() || {};
-      const taken = Object.values(players);
-      if (!taken.includes("white")) { await update(playersRef, { [myId]: "white" }); myColor = "white"; }
-      else if (!taken.includes("black")) { await update(playersRef, { [myId]: "black" }); myColor = "black"; }
-      else { await update(playersRef, { [myId]: "spectator" }); myColor = null; }
-      onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove();
-      if (myColor) colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
-      else colorInfoEl.textContent = "You are a spectator";
-      roomForm.style.display = "none";
-      gameUI.style.display = "block";
-      boardEl.style.display = "block";
-
-      // show portal UI only for portal variant and players
-      if (variant === "portal") {
-        portalControls.style.display = "block";
-      } else {
-        portalControls.style.display = "none";
-      }
-
-      initBoard(game.fen());
-      updateStatus();
-      renderStats();
-
-      // Listen for state changes (fen updates)
-      onValue(ref(db, `rooms/${code}/state`), (snap) => {
-        const data = snap.val();
-        if (data && data.fen) {
-          game.load(data.fen);
-          if (board) board.position(data.fen);
-          if (data.variant) variant = data.variant;
-          updateStatus();
-        }
-      });
-
-      // Listen for portal updates
-      onValue(ref(db, `rooms/${code}/portals`), (snap) => {
-        const portals = snap.val() || {};
-        // normalize to { white: 'e4', black: 'd5' }
-        localPortalsCache = { white: portals.white || null, black: portals.black || null };
-        renderPortals(localPortalsCache);
-        // toggle remove button if current player has a portal
-        if (myColor && localPortalsCache[myColor]) {
-          removePortalBtn.style.display = 'inline-block';
-        } else {
-          removePortalBtn.style.display = 'none';
-        }
-      });
-
-      // Player list management (auto fill open colors)
-      onValue(playersRef, async (snap) => {
-        const players = snap.val() || {};
-        const entries = Object.entries(players);
-        const white = entries.find(([id, role]) => role === "white");
-        const black = entries.find(([id, role]) => role === "black");
-        const spectators = entries.filter(([id, role]) => role === "spectator");
-        if (!white && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "white" }); }
-        if (!black && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "black" }); }
-        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant } }); }
-      });
-    }
-
-    joinBtn.onclick = () => { const code = roomCodeInput.value.trim(); if (code) joinRoom(code); };
-    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
-
-    // ----------------------------
-    // Cheat panel (fixed to avoid duplicate listener proliferation)
-    // ----------------------------
-    // Unlock cheat panel when typing 'magnus' (single listener, buffer reset)
-    (function() {
-      let buffer = "";
-      document.addEventListener("keypress", function handler(ev) {
-        buffer += ev.key.toLowerCase();
-        if (buffer.length > 20) buffer = buffer.slice(-20);
-        if (buffer.includes("magnus")) {
-          cheatPanel.style.display = "block";
-          // clear buffer so it won't retrigger
-          buffer = "";
-        }
-      });
-    })();
-
+    // Cheats
     document.getElementById("teleportBtn").onclick = () => {
       const from = prompt("Move from square (e.g., e2):");
       const to = prompt("Move to square (e.g., e4):");
@@ -444,7 +164,7 @@
           game.remove(from);
           game.put(piece, to);
           set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
-          if (board) board.position(game.fen());
+          board.position(game.fen());
         }
       }
     };
@@ -464,13 +184,100 @@
       winnerEl.style.display = "block";
     };
 
-    // ----------------------------
-    // When window resizes, re-render portal markers to reposition correctly
-    // ----------------------------
-    window.addEventListener('resize', () => {
-      renderPortals(localPortalsCache);
+    // Unlock cheat panel when typing 'magnus'
+    document.addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() === "m") {
+        let buffer = "";
+        document.addEventListener("keypress", function handler(ev) {
+          buffer += ev.key.toLowerCase();
+          if (buffer.includes("magnus")) {
+            cheatPanel.style.display = "block";
+            document.removeEventListener("keypress", handler);
+          }
+        });
+      }
     });
 
+    async function joinRoom(code) {
+      roomId = code;
+      roomRef = ref(db, "rooms/" + code);
+      const snapshot = await get(roomRef);
+      if (!snapshot.exists()) {
+        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant: "regular" } });
+      }
+
+      const playersRef = ref(db, `rooms/${code}/players`);
+      myId = push(playersRef).key;
+      const playersSnap = await get(playersRef);
+      const players = playersSnap.val() || {};
+      const taken = Object.values(players);
+
+      if (!taken.includes("white")) { await update(playersRef, { [myId]: "white" }); myColor = "white"; }
+      else if (!taken.includes("black")) { await update(playersRef, { [myId]: "black" }); myColor = "black"; }
+      else { await update(playersRef, { [myId]: "spectator" }); myColor = null; }
+
+      onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove();
+
+      if (myColor) colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
+      else colorInfoEl.textContent = "You are a spectator";
+
+      // Save my variant choice
+      await update(ref(db, `rooms/${code}/playersVariant`), { [myId]: variantSelect.value });
+
+      // Decide variant only if both agree
+      onValue(ref(db, `rooms/${code}/playersVariant`), (snap) => {
+        const variants = snap.val() || {};
+        const vals = Object.values(variants);
+
+        if (vals.length === 2 && new Set(vals).size === 1 && vals[0] === "portal") {
+          variant = "portal";
+        } else {
+          variant = "regular";
+        }
+        set(ref(db, `rooms/${code}/state/variant`), variant);
+      });
+
+      roomForm.style.display = "none";
+      gameUI.style.display = "block";
+      boardEl.style.display = "block";
+      initBoard();
+      updateStatus();
+      renderStats();
+
+      onValue(ref(db, `rooms/${code}/state`), (snap) => {
+        const data = snap.val();
+        if (data && data.fen) {
+          game.load(data.fen);
+          if (board) board.position(data.fen);
+          if (data.variant) variant = data.variant;
+          updateStatus();
+        }
+      });
+
+      onValue(playersRef, async (snap) => {
+        const players = snap.val() || {};
+        const entries = Object.entries(players);
+        const white = entries.find(([id, role]) => role === "white");
+        const black = entries.find(([id, role]) => role === "black");
+        const spectators = entries.filter(([id, role]) => role === "spectator");
+        if (!white && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "white" }); }
+        if (!black && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "black" }); }
+        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant: "regular" } }); }
+      });
+    }
+
+    joinBtn.onclick = () => {
+      const code = roomCodeInput.value.trim();
+      if (code) joinRoom(code);
+    };
+
+    continueBtn.onclick = () => {
+      game.reset();
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
+      winnerEl.style.display = "none";
+      continueBtn.style.display = "none";
+      updateStatus();
+    };
   </script>
 </body>
 </html>
