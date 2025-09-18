@@ -31,11 +31,6 @@
   <!-- Room join form -->
   <div id="roomForm">
     <input type="text" id="roomCode" placeholder="Enter room code">
-    <select id="variantSelect">
-      <option value="regular">Regular Chess</option>
-      <option value="portal">Portal Chess</option>
-      <option value="duck">Duck Chess</option>
-    </select>
     <button id="joinBtn">Join Room Code</button>
   </div>
 
@@ -150,7 +145,7 @@
       });
     }
 
-    // Cheats (Double Move removed)
+    // Cheats
     document.getElementById("teleportBtn").onclick = () => {
       const from = prompt("Move from square (e.g., e2):");
       const to = prompt("Move to square (e.g., e4):");
