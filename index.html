@@ -2,202 +2,242 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Chess</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <!-- jQuery (needed by chessboard.js) -->
-  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-
-  <!-- chessboard.js -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
-
-  <!-- chess.js (UMD build for browser globals) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-
+  <title>Multiplayer Chess with Chat & Moves</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.css" />
   <style>
-    body { font-family: cursive; margin:20px; }
-    #layout { display:grid; grid-template-columns: 220px auto 220px; gap:20px; justify-content:center; align-items:flex-start; }
-    #chatContainer { border:1px solid #ccc; padding:10px; background:#f9f9f9; display:none; height:100%; }
-    #chatBox { height:400px; overflow-y:auto; border:1px solid #aaa; margin-bottom:5px; padding:5px; background:#fff; }
-    #movesContainer { border:1px solid #ccc; padding:10px; background:#f9f9f9; display:none; height:100%; }
-    #movesList { height:400px; overflow-y:auto; border:1px solid #aaa; padding:5px; background:#fff; }
-    #board { width:400px; display:none; margin:auto; }
-    #status, #winner, #colorInfo, #rankStats { margin:10px; font-weight:bold; text-align:center; }
-    #winner { font-size:20px; color:#b00; }
-    button { padding:6px 12px; margin:5px; }
-    #cheatPanel { display:none; border:1px solid #333; padding:10px; margin-top:15px; background:#f0f0f0; }
-    #cheatPanel button { display:block; margin:5px 0; }
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: transparent;
+    }
+    #app {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      position: relative;
+      z-index: 1; /* UI overlays on effect */
+    }
+    #chatContainer {
+      width: 20%;
+      min-width: 200px;
+      border-right: 1px solid #ccc;
+      display: flex;
+      flex-direction: column;
+      background: rgba(255,255,255,0.8);
+    }
+    #chatBox {
+      flex: 1;
+      overflow-y: auto;
+      padding: 5px;
+      background: #f8f8f8;
+    }
+    #chatInput {
+      border: none;
+      padding: 8px;
+      width: calc(100% - 60px);
+    }
+    #sendBtn {
+      padding: 8px;
+    }
+    #gameArea {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.8);
+    }
+    #controls {
+      margin: 10px;
+    }
+    #board {
+      width: 400px;
+      margin: 20px;
+      display: none;
+    }
+    #movesContainer {
+      width: 20%;
+      min-width: 200px;
+      border-left: 1px solid #ccc;
+      background: rgba(255,255,255,0.8);
+      overflow-y: auto;
+      padding: 10px;
+    }
+    #movesBox {
+      font-family: monospace;
+    }
+    #winner {
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    /* LiquidEther canvas behind */
+    #liquidBg {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+    }
   </style>
 </head>
 <body>
-  <h2>Chess</h2>
+  <!-- Background -->
+  <div id="liquidBg"></div>
 
-  <!-- Room join form -->
-  <div id="roomForm">
-    <input type="text" id="roomCode" placeholder="Enter room code">
-    <button id="joinBtn">Join Room Code</button>
-  </div>
-
-  <!-- Layout with chat, board, moves -->
-  <div id="layout" style="display:none;">
-    <!-- Chat -->
+  <!-- Foreground app -->
+  <div id="app">
+    <!-- Chat left -->
     <div id="chatContainer">
-      <h3>Chat</h3>
       <div id="chatBox"></div>
-      <input id="chatInput" type="text" placeholder="Type a message..." style="width:100%;">
-      <button id="sendBtn">Send</button>
-    </div>
-
-    <!-- Game UI -->
-    <div id="gameUI">
-      <div id="colorInfo"></div>
-      <div id="board"></div>
-      <div id="status"></div>
-      <div id="winner" style="display:none;"></div>
-      <button id="continueBtn" style="display:none;">Continue</button>
-      <div id="rankStats"></div>
-      <!-- Cheat Panel -->
-      <div id="cheatPanel">
-        <h3>Magnus Panel</h3>
-        <button id="teleportBtn">Teleport Piece</button>
-        <button id="instantWinBtn">Instant Win</button>
-        <button id="instantLossBtn">Instant Loss</button>
-        <button id="instantTieBtn">Instant Tie</button>
+      <div style="display:flex;">
+        <input id="chatInput" type="text" placeholder="Type a message...">
+        <button id="sendBtn">Send</button>
       </div>
     </div>
 
-    <!-- Moves -->
+    <!-- Chess middle -->
+    <div id="gameArea">
+      <h1>Multiplayer Chess</h1>
+      <div id="controls">
+        <input type="text" id="roomCode" placeholder="Enter room code">
+        <button id="joinBtn">Join Room</button>
+      </div>
+      <div id="board"></div>
+      <div id="winner"></div>
+    </div>
+
+    <!-- Moves right -->
     <div id="movesContainer">
       <h3>Moves</h3>
-      <div id="movesList"></div>
+      <div id="movesBox"></div>
     </div>
   </div>
 
+  <!-- Chessboard + Chess.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard.js/1.0.0/chessboard-1.0.0.min.js"></script>
+
+  <!-- Firebase -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-    import { getDatabase, ref, set, get, update, remove, onValue, push, onChildAdded, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+    import { getDatabase, ref, set, update, get, onValue, push, onChildAdded } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
+    // Replace with your Firebase project config
     const firebaseConfig = {
-      apiKey: "AIzaSyDvU2DH8o3baDrRPmihP45R39OtSjhk2aA",
-      authDomain: "chess-4b89c.firebaseapp.com",
-      databaseURL: "https://chess-4b89c-default-rtdb.firebaseio.com",
-      projectId: "chess-4b89c",
-      storageBucket: "chess-4b89c.firebasestorage.app",
-      messagingSenderId: "1052008395512",
-      appId: "1:1052008395512:web:c3dc29b8da9480b25a810d",
-      measurementId: "G-1L9KKDPGYR"
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+      projectId: "YOUR_PROJECT",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
     };
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    const game = new Chess();
-    let board = null;
+    let board, game = new Chess();
     let myColor = null;
     let myId = null;
     let roomRef = null;
-    let roomId = null;
+    let roomCode = null;
 
-    let stats = JSON.parse(localStorage.getItem("chessStats")) || { points: 0, wins: 0, losses: 0, draws: 0 };
+    // --- Room join ---
+    document.getElementById("joinBtn").onclick = async () => {
+      const code = document.getElementById("roomCode").value;
+      if (!code) return alert("Enter a room code!");
+      roomCode = code;
+      roomRef = ref(db, "rooms/" + roomCode);
+      const snapshot = await get(roomRef);
 
-    const roomForm = document.getElementById("roomForm");
-    const roomCodeInput = document.getElementById("roomCode");
-    const joinBtn = document.getElementById("joinBtn");
-    const layout = document.getElementById("layout");
-    const gameUI = document.getElementById("gameUI");
-    const statusEl = document.getElementById("status");
-    const winnerEl = document.getElementById("winner");
-    const continueBtn = document.getElementById("continueBtn");
-    const boardEl = document.getElementById("board");
-    const colorInfoEl = document.getElementById("colorInfo");
-    const rankStatsEl = document.getElementById("rankStats");
-    const cheatPanel = document.getElementById("cheatPanel");
-    const chatContainer = document.getElementById("chatContainer");
-    const chatBox = document.getElementById("chatBox");
-    const chatInput = document.getElementById("chatInput");
-    const sendBtn = document.getElementById("sendBtn");
-    const movesContainer = document.getElementById("movesContainer");
-    const movesList = document.getElementById("movesList");
-
-    function renderStats() {
-      rankStatsEl.textContent = `Points: ${stats.points} | Wins: ${stats.wins} | Losses: ${stats.losses} | Draws: ${stats.draws}`;
-    }
-
-    function saveStats() {
-      localStorage.setItem("chessStats", JSON.stringify(stats));
-      renderStats();
-    }
-
-    function updateStatus() {
-      if (game.in_checkmate()) {
-        const winner = (game.turn() === "w" ? "Black" : "White");
-        winnerEl.textContent = winner + " wins!";
-        winnerEl.style.display = "block";
-        continueBtn.style.display = "inline-block";
-        if (myColor) {
-          if (winner.toLowerCase() === myColor) { stats.wins++; stats.points += 2; }
-          else { stats.losses++; stats.points -= 2; }
-          saveStats();
-        }
-        return;
+      if (!snapshot.exists()) {
+        myColor = "w";
+        myId = Date.now();
+        await set(roomRef, {
+          fen: game.fen(),
+          players: { [myId]: myColor },
+          turn: "w",
+          moves: []
+        });
+      } else {
+        myColor = "b";
+        myId = Date.now();
+        await update(roomRef, {
+          [`players/${myId}`]: myColor
+        });
       }
-      if (game.in_draw()) {
-        statusEl.textContent = "Game drawn.";
-        if (myColor) { stats.draws++; stats.points += 1; saveStats(); }
-        return;
-      }
-      const moveColor = game.turn() === "w" ? "White" : "Black";
-      statusEl.textContent = moveColor + " to move" + (game.in_check() ? " (in check)" : "");
-    }
 
-    function addMoveToList(move) {
-      const div = document.createElement("div");
-      div.textContent = `${move.from} → ${move.to}`;
-      movesList.appendChild(div);
-      movesList.scrollTop = movesList.scrollHeight;
-    }
+      initBoard();
+      listenForUpdates();
+      listenForChat();
+    };
 
-    function onDrop(source, target) {
-      if (!myColor) return "snapback";
-      if ((myColor[0] !== game.turn())) return "snapback";
-
-      const move = game.move({ from: source, to: target, promotion: "q" });
-      if (move === null) return "snapback";
-
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
-      addMoveToList(move);
-      updateStatus();
-    }
-
-    function initBoard(fen = "start") {
+    // --- Chessboard init ---
+    function initBoard() {
       board = Chessboard("board", {
         draggable: true,
-        position: fen,
-        onDrop: onDrop,
-        orientation: (myColor === "black" ? "black" : "white"),
-        pieceTheme: (piece) => 'pieces/' + piece + '.png'
+        position: game.fen(),
+        onDrop: handleMove
+      });
+      document.getElementById("board").style.display = "block";
+    }
+
+    // --- Handle moves ---
+    function handleMove(source, target) {
+      if (game.turn() !== myColor) return "snapback";
+
+      const move = game.move({ from: source, to: target, promotion: "q" });
+      if (!move) return "snapback";
+
+      update(roomRef, {
+        fen: game.fen(),
+        turn: game.turn()
+      });
+
+      // Store move in Firebase moves list
+      const moveText = `${move.san}`;
+      const movesRef = ref(db, `rooms/${roomCode}/moves`);
+      push(movesRef, moveText);
+    }
+
+    // --- Firebase board updates ---
+    function listenForUpdates() {
+      onValue(roomRef, (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.val();
+        if (data.fen && data.fen !== game.fen()) {
+          game.load(data.fen);
+          board.position(game.fen());
+        }
+
+        if (game.game_over()) {
+          let result = "Draw";
+          if (game.in_checkmate()) {
+            result = (game.turn() === "w" ? "Black" : "White") + " wins!";
+          }
+          document.getElementById("winner").textContent = result;
+        }
+      });
+
+      // Listen for moves
+      const movesRef = ref(db, `rooms/${roomCode}/moves`);
+      onChildAdded(movesRef, (snap) => {
+        const move = snap.val();
+        const movesBox = document.getElementById("movesBox");
+        const div = document.createElement("div");
+        div.textContent = move;
+        movesBox.appendChild(div);
+        movesBox.scrollTop = movesBox.scrollHeight;
       });
     }
 
-    // Chat
-    function sendChatMessage(text) {
-      const chatRef = ref(db, `rooms/${roomId}/chat`);
-      push(chatRef, {
-        sender: myColor ? myColor : "Spectator",
-        text,
-        time: Date.now()
-      });
-    }
-
+    // --- Chat ---
     function listenForChat() {
-      const chatRef = ref(db, `rooms/${roomId}/chat`);
+      const chatRef = ref(db, `rooms/${roomCode}/chat`);
       onChildAdded(chatRef, (snap) => {
         const msg = snap.val();
-        if (msg.text.startsWith("played")) {
-          // skip logging moves in chat, they go to moves list
-          return;
-        }
+        const chatBox = document.getElementById("chatBox");
         const div = document.createElement("div");
         div.textContent = `${msg.sender}: ${msg.text}`;
         chatBox.appendChild(div);
@@ -205,121 +245,51 @@
       });
     }
 
-    sendBtn.onclick = () => {
-      if (chatInput.value.trim()) {
-        sendChatMessage(chatInput.value.trim());
-        chatInput.value = "";
-      }
-    };
-
-    chatInput.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        sendBtn.click();
-      }
-    });
-
-    // Cheats (unchanged)
-    document.getElementById("teleportBtn").onclick = () => {
-      const from = prompt("Move from square (e.g., e2):");
-      const to = prompt("Move to square (e.g., e4):");
-      if (from && to) {
-        const piece = game.get(from);
-        if (piece) {
-          game.remove(from);
-          game.put(piece, to);
-          set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
-          board.position(game.fen());
-        }
-      }
-    };
-
-    document.getElementById("instantWinBtn").onclick = () => {
-      winnerEl.textContent = "You declared instant win!";
-      winnerEl.style.display = "block";
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), result: `${myColor} wins` });
-    };
-
-    document.getElementById("instantLossBtn").onclick = () => {
-      winnerEl.textContent = "You declared instant loss!";
-      winnerEl.style.display = "block";
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), result: `${myColor === "white" ? "black" : "white"} wins` });
-    };
-
-    document.getElementById("instantTieBtn").onclick = () => {
-      winnerEl.textContent = "You declared instant tie!";
-      winnerEl.style.display = "block";
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), result: "draw" });
-    };
-
-    // Unlock cheat panel when typing 'magnus'
-    document.addEventListener("keydown", (e) => {
-      if (e.key.toLowerCase() === "m") {
-        let buffer = "";
-        document.addEventListener("keypress", function handler(ev) {
-          buffer += ev.key.toLowerCase();
-          if (buffer.includes("magnus")) {
-            cheatPanel.style.display = "block";
-            document.removeEventListener("keypress", handler);
-          }
-        });
-      }
-    });
-
-    async function joinRoom(code) {
-      roomId = code;
-      roomRef = ref(db, "rooms/" + code);
-      const snapshot = await get(roomRef);
-      if (!snapshot.exists()) {
-        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } });
-      }
-      const playersRef = ref(db, `rooms/${code}/players`);
-      myId = push(playersRef).key;
-      const playersSnap = await get(playersRef);
-      const players = playersSnap.val() || {};
-      const taken = Object.values(players);
-      if (!taken.includes("white")) { await update(playersRef, { [myId]: "white" }); myColor = "white"; }
-      else if (!taken.includes("black")) { await update(playersRef, { [myId]: "black" }); myColor = "black"; }
-      else { await update(playersRef, { [myId]: "spectator" }); myColor = null; }
-      onDisconnect(ref(db, `rooms/${code}/players/${myId}`)).remove();
-      if (myColor) colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
-      else colorInfoEl.textContent = "You are a spectator";
-      roomForm.style.display = "none";
-      layout.style.display = "grid";
-      gameUI.style.display = "block";
-      boardEl.style.display = "block";
-      chatContainer.style.display = "block";
-      movesContainer.style.display = "block";
-      initBoard();
-      updateStatus();
-      renderStats();
-      listenForChat();
-      onValue(ref(db, `rooms/${code}/state`), (snap) => {
-        const data = snap.val();
-        if (data && data.fen) {
-          game.load(data.fen);
-          if (board) board.position(data.fen);
-          if (data.result) {
-            winnerEl.textContent = data.result;
-            winnerEl.style.display = "block";
-          }
-          updateStatus();
-        }
-      });
-      onValue(playersRef, async (snap) => {
-        const players = snap.val() || {};
-        const entries = Object.entries(players);
-        const white = entries.find(([id, role]) => role === "white");
-        const black = entries.find(([id, role]) => role === "black");
-        const spectators = entries.filter(([id, role]) => role === "spectator");
-        if (!white && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "white" }); }
-        if (!black && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "black" }); }
-        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } }); }
+    function sendChatMessage(text) {
+      const chatRef = ref(db, `rooms/${roomCode}/chat`);
+      push(chatRef, {
+        sender: myColor === "w" ? "White" : "Black",
+        text,
+        time: Date.now()
       });
     }
 
-    joinBtn.onclick = () => { const code = roomCodeInput.value.trim(); if (code) joinRoom(code); };
-    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
+    document.getElementById("sendBtn").onclick = () => {
+      const input = document.getElementById("chatInput");
+      if (input.value.trim()) {
+        sendChatMessage(input.value.trim());
+        input.value = "";
+      }
+    };
+
+    document.getElementById("chatInput").addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        document.getElementById("sendBtn").click();
+      }
+    });
+  </script>
+
+  <!-- LiquidEther background -->
+  <script type="module">
+    import LiquidEther from './LiquidEther.js';
+    const container = document.getElementById("liquidBg");
+    new LiquidEther(container, {
+      colors:[ '#5227FF', '#FF9FFC', '#B19EEF' ],
+      mouseForce:20,
+      cursorSize:100,
+      isViscous:false,
+      viscous:30,
+      iterationsViscous:32,
+      iterationsPoisson:32,
+      resolution:0.5,
+      isBounce:false,
+      autoDemo:true,
+      autoSpeed:0.5,
+      autoIntensity:2.2,
+      takeoverDuration:0.25,
+      autoResumeDelay:3000,
+      autoRampDuration:0.6
+    });
   </script>
 </body>
 </html>
