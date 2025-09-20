@@ -16,11 +16,16 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
   <style>
-    body { font-family: cursive; display:flex; flex-direction:column; align-items:center; margin:20px; }
-    #board { width: 400px; margin:20px; display:none; }
-    #status, #winner, #colorInfo, #rankStats { margin:10px; font-weight:bold; }
+    body { font-family: cursive; margin:20px; }
+    #layout { display:grid; grid-template-columns: 220px auto 220px; gap:20px; justify-content:center; align-items:flex-start; }
+    #chatContainer { border:1px solid #ccc; padding:10px; background:#f9f9f9; display:none; height:100%; }
+    #chatBox { height:400px; overflow-y:auto; border:1px solid #aaa; margin-bottom:5px; padding:5px; background:#fff; }
+    #movesContainer { border:1px solid #ccc; padding:10px; background:#f9f9f9; display:none; height:100%; }
+    #movesList { height:400px; overflow-y:auto; border:1px solid #aaa; padding:5px; background:#fff; }
+    #board { width:400px; display:none; margin:auto; }
+    #status, #winner, #colorInfo, #rankStats { margin:10px; font-weight:bold; text-align:center; }
     #winner { font-size:20px; color:#b00; }
-    button, select { padding:6px 12px; margin:5px; }
+    button { padding:6px 12px; margin:5px; }
     #cheatPanel { display:none; border:1px solid #333; padding:10px; margin-top:15px; background:#f0f0f0; }
     #cheatPanel button { display:block; margin:5px 0; }
   </style>
@@ -31,33 +36,47 @@
   <!-- Room join form -->
   <div id="roomForm">
     <input type="text" id="roomCode" placeholder="Enter room code">
-    <select id="variantSelect">
-      <option value="regular">Regular Chess</option>
-    </select>
     <button id="joinBtn">Join Room Code</button>
   </div>
 
-  <!-- Game UI -->
-  <div id="gameUI" style="display:none;">
-    <div id="colorInfo"></div>
-    <div id="board"></div>
-    <div id="status"></div>
-    <div id="winner" style="display:none;"></div>
-    <button id="continueBtn" style="display:none;">Continue</button>
-    <div id="rankStats"></div>
-    <!-- Cheat Panel -->
-    <div id="cheatPanel">
-      <h3>Magnus Panel</h3>
-      <button id="teleportBtn">Teleport Piece</button>
-      <button id="instantWinBtn">Instant Win</button>
-      <button id="instantLossBtn">Instant Loss</button>
-      <button id="instantTieBtn">Instant Tie</button>
+  <!-- Layout with chat, board, moves -->
+  <div id="layout" style="display:none;">
+    <!-- Chat -->
+    <div id="chatContainer">
+      <h3>Chat</h3>
+      <div id="chatBox"></div>
+      <input id="chatInput" type="text" placeholder="Type a message..." style="width:100%;">
+      <button id="sendBtn">Send</button>
+    </div>
+
+    <!-- Game UI -->
+    <div id="gameUI">
+      <div id="colorInfo"></div>
+      <div id="board"></div>
+      <div id="status"></div>
+      <div id="winner" style="display:none;"></div>
+      <button id="continueBtn" style="display:none;">Continue</button>
+      <div id="rankStats"></div>
+      <!-- Cheat Panel -->
+      <div id="cheatPanel">
+        <h3>Magnus Panel</h3>
+        <button id="teleportBtn">Teleport Piece</button>
+        <button id="instantWinBtn">Instant Win</button>
+        <button id="instantLossBtn">Instant Loss</button>
+        <button id="instantTieBtn">Instant Tie</button>
+      </div>
+    </div>
+
+    <!-- Moves -->
+    <div id="movesContainer">
+      <h3>Moves</h3>
+      <div id="movesList"></div>
     </div>
   </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-    import { getDatabase, ref, set, get, update, remove, onValue, push, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+    import { getDatabase, ref, set, get, update, remove, onValue, push, onChildAdded, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDvU2DH8o3baDrRPmihP45R39OtSjhk2aA",
@@ -79,14 +98,13 @@
     let myId = null;
     let roomRef = null;
     let roomId = null;
-    let variant = "regular";
 
     let stats = JSON.parse(localStorage.getItem("chessStats")) || { points: 0, wins: 0, losses: 0, draws: 0 };
 
     const roomForm = document.getElementById("roomForm");
     const roomCodeInput = document.getElementById("roomCode");
-    const variantSelect = document.getElementById("variantSelect");
     const joinBtn = document.getElementById("joinBtn");
+    const layout = document.getElementById("layout");
     const gameUI = document.getElementById("gameUI");
     const statusEl = document.getElementById("status");
     const winnerEl = document.getElementById("winner");
@@ -95,6 +113,12 @@
     const colorInfoEl = document.getElementById("colorInfo");
     const rankStatsEl = document.getElementById("rankStats");
     const cheatPanel = document.getElementById("cheatPanel");
+    const chatContainer = document.getElementById("chatContainer");
+    const chatBox = document.getElementById("chatBox");
+    const chatInput = document.getElementById("chatInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const movesContainer = document.getElementById("movesContainer");
+    const movesList = document.getElementById("movesList");
 
     function renderStats() {
       rankStatsEl.textContent = `Points: ${stats.points} | Wins: ${stats.wins} | Losses: ${stats.losses} | Draws: ${stats.draws}`;
@@ -127,6 +151,13 @@
       statusEl.textContent = moveColor + " to move" + (game.in_check() ? " (in check)" : "");
     }
 
+    function addMoveToList(move) {
+      const div = document.createElement("div");
+      div.textContent = `${move.from} → ${move.to}`;
+      movesList.appendChild(div);
+      movesList.scrollTop = movesList.scrollHeight;
+    }
+
     function onDrop(source, target) {
       if (!myColor) return "snapback";
       if ((myColor[0] !== game.turn())) return "snapback";
@@ -134,7 +165,9 @@
       const move = game.move({ from: source, to: target, promotion: "q" });
       if (move === null) return "snapback";
 
-      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
+      addMoveToList(move);
+      sendChatMessage(`played ${move.from} → ${move.to}`);
       updateStatus();
     }
 
@@ -148,7 +181,35 @@
       });
     }
 
-    // Cheats
+    // Chat
+    function sendChatMessage(text) {
+      const chatRef = ref(db, `rooms/${roomId}/chat`);
+      push(chatRef, {
+        sender: myColor ? myColor : "Spectator",
+        text,
+        time: Date.now()
+      });
+    }
+
+    function listenForChat() {
+      const chatRef = ref(db, `rooms/${roomId}/chat`);
+      onChildAdded(chatRef, (snap) => {
+        const msg = snap.val();
+        const div = document.createElement("div");
+        div.textContent = `${msg.sender}: ${msg.text}`;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+      });
+    }
+
+    sendBtn.onclick = () => {
+      if (chatInput.value.trim()) {
+        sendChatMessage(chatInput.value.trim());
+        chatInput.value = "";
+      }
+    };
+
+    // Cheats (unchanged)
     document.getElementById("teleportBtn").onclick = () => {
       const from = prompt("Move from square (e.g., e2):");
       const to = prompt("Move to square (e.g., e4):");
@@ -157,7 +218,7 @@
         if (piece) {
           game.remove(from);
           game.put(piece, to);
-          set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant });
+          set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() });
           board.position(game.fen());
         }
       }
@@ -166,16 +227,19 @@
     document.getElementById("instantWinBtn").onclick = () => {
       winnerEl.textContent = "You declared instant win!";
       winnerEl.style.display = "block";
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), result: `${myColor} wins` });
     };
 
     document.getElementById("instantLossBtn").onclick = () => {
       winnerEl.textContent = "You declared instant loss!";
       winnerEl.style.display = "block";
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), result: `${myColor === "white" ? "black" : "white"} wins` });
     };
 
     document.getElementById("instantTieBtn").onclick = () => {
       winnerEl.textContent = "You declared instant tie!";
       winnerEl.style.display = "block";
+      set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), result: "draw" });
     };
 
     // Unlock cheat panel when typing 'magnus'
@@ -195,10 +259,9 @@
     async function joinRoom(code) {
       roomId = code;
       roomRef = ref(db, "rooms/" + code);
-      variant = variantSelect.value;
       const snapshot = await get(roomRef);
       if (!snapshot.exists()) {
-        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant } });
+        await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } });
       }
       const playersRef = ref(db, `rooms/${code}/players`);
       myId = push(playersRef).key;
@@ -212,17 +275,24 @@
       if (myColor) colorInfoEl.textContent = "You are " + myColor.charAt(0).toUpperCase() + myColor.slice(1);
       else colorInfoEl.textContent = "You are a spectator";
       roomForm.style.display = "none";
+      layout.style.display = "grid";
       gameUI.style.display = "block";
       boardEl.style.display = "block";
+      chatContainer.style.display = "block";
+      movesContainer.style.display = "block";
       initBoard();
       updateStatus();
       renderStats();
+      listenForChat();
       onValue(ref(db, `rooms/${code}/state`), (snap) => {
         const data = snap.val();
         if (data && data.fen) {
           game.load(data.fen);
           if (board) board.position(data.fen);
-          if (data.variant) variant = data.variant;
+          if (data.result) {
+            winnerEl.textContent = data.result;
+            winnerEl.style.display = "block";
+          }
           updateStatus();
         }
       });
@@ -234,12 +304,12 @@
         const spectators = entries.filter(([id, role]) => role === "spectator");
         if (!white && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "white" }); }
         if (!black && spectators.length > 0) { const [sid] = spectators[0]; await update(playersRef, { [sid]: "black" }); }
-        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn(), variant } }); }
+        if (entries.length === 0) { game.reset(); await set(roomRef, { players: {}, state: { fen: game.fen(), turn: game.turn() } }); }
       });
     }
 
     joinBtn.onclick = () => { const code = roomCodeInput.value.trim(); if (code) joinRoom(code); };
-    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn(), variant }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
+    continueBtn.onclick = () => { game.reset(); set(ref(db, `rooms/${roomId}/state`), { fen: game.fen(), turn: game.turn() }); winnerEl.style.display = "none"; continueBtn.style.display = "none"; updateStatus(); };
   </script>
 </body>
 </html>
